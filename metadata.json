@@ -1,0 +1,5 @@
+{
+  "name": "IOE GPA Calculator (Syllabus 2081)",
+  "description": "The most accurate IOE GPA and CGPA calculator with 20% internal capping rule enforcement. Designed for students of Pulchowk, Thapathali, KEC, and all IOE affiliated colleges.",
+  "requestFramePermissions": []
+}
