@@ -1,13 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Calculator, BookOpen, Download, RotateCcw, Plus, Trash2, ChevronDown, BarChart3, Target, Sparkles, AlertTriangle, TrendingUp, BrainCircuit, PieChart as PieChartIcon } from 'lucide-react';
+import { Calculator, BookOpen, Download, RotateCcw, Plus, Trash2, ChevronDown, BarChart3, Target, AlertTriangle, TrendingUp, PieChart as PieChartIcon } from 'lucide-react';
 import { Faculty, Subject, SubjectMarks, SemesterResult } from './types';
 import { SUBJECT_DATABASE } from './data/subjects';
 import { calculateSubjectGPA, getDivision, generateInsights, simulateTargetGPA } from './lib/calculations';
 import GoogleAd from './components/GoogleAd';
-import { getExpertAnalysis } from './services/aiService';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
-import Markdown from 'react-markdown';
 
 export default function App() {
   const [mode, setMode] = useState<'semester' | 'aggregate' | 'stats' | 'simulator'>('semester');
@@ -26,8 +24,6 @@ export default function App() {
   });
 
   const [targetGPA, setTargetGPA] = useState(3.6);
-  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   // Persistence effects
   useEffect(() => {
@@ -665,7 +661,7 @@ export default function App() {
                     {/* Credit Weightage Pie */}
                     <div className="apple-card p-6">
                       <h3 className="text-sm font-bold uppercase tracking-widest mb-6 flex items-center gap-2">
-                        <PieChartIcon className="w-4 h-4" />
+                        <PieChart className="w-4 h-4" />
                         Credit Weightage
                       </h3>
                       <div className="h-64">
@@ -693,33 +689,10 @@ export default function App() {
                   <div className="apple-card p-8 space-y-8">
                     <div className="flex items-center justify-between">
                       <h3 className="text-sm font-bold uppercase tracking-widest flex items-center gap-2">
-                        <Sparkles className="w-4 h-4" />
+                        <TrendingUp className="w-4 h-4" />
                         Performance Insights
                       </h3>
-                      <button
-                        onClick={async () => {
-                          setIsAnalyzing(true);
-                          const result = await getExpertAnalysis({ subjects, marks, stats: semesterStats });
-                          setAiAnalysis(result);
-                          setIsAnalyzing(false);
-                        }}
-                        disabled={isAnalyzing}
-                        className="apple-button-secondary py-2 px-4 text-xs flex items-center gap-2"
-                      >
-                        <BrainCircuit className={`w-4 h-4 ${isAnalyzing ? 'animate-pulse' : ''}`} />
-                        {isAnalyzing ? 'Analyzing...' : 'Expert AI Analysis'}
-                      </button>
                     </div>
-
-                    {aiAnalysis && (
-                      <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        className="bg-black/[0.02] p-6 rounded-2xl border border-black/[0.05] prose prose-sm max-w-none"
-                      >
-                        <Markdown>{aiAnalysis}</Markdown>
-                      </motion.div>
-                    )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                       {/* Capping Audit */}
@@ -814,7 +787,7 @@ export default function App() {
                 <div className="space-y-6">
                   <div className="apple-card overflow-hidden">
                     <div className="bg-black text-white p-4 flex items-center gap-2">
-                      <Sparkles className="w-4 h-4" />
+                      <Target className="w-4 h-4" />
                       <h3 className="text-xs font-bold uppercase tracking-widest">Suggested Marks Distribution</h3>
                     </div>
                     <div className="overflow-x-auto">
