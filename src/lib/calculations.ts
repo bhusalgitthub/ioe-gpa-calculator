@@ -1,14 +1,16 @@
-import { GradeInfo } from '../types';
+import { GradeInfo, Subject, SubjectMarks, PerformanceInsight } from '../types';
 
 export function getGrade(pct: number): GradeInfo {
-  if (pct >= 80) return { letter: 'A', gp: 4.0 };
-  if (pct >= 75) return { letter: 'A-', gp: 3.7 };
-  if (pct >= 70) return { letter: 'B+', gp: 3.3 };
-  if (pct >= 65) return { letter: 'B', gp: 3.0 };
-  if (pct >= 60) return { letter: 'B-', gp: 2.7 };
-  if (pct >= 55) return { letter: 'C+', gp: 2.3 };
-  if (pct >= 50) return { letter: 'C', gp: 2.0 };
-  if (pct >= 40) return { letter: 'D', gp: 1.0 };
+  // Rounding to 2 decimal places for boundary cases
+  const roundedPct = Math.round(pct * 100) / 100;
+  if (roundedPct >= 80) return { letter: 'A', gp: 4.0 };
+  if (roundedPct >= 75) return { letter: 'A-', gp: 3.7 };
+  if (roundedPct >= 70) return { letter: 'B+', gp: 3.3 };
+  if (roundedPct >= 65) return { letter: 'B', gp: 3.0 };
+  if (roundedPct >= 60) return { letter: 'B-', gp: 2.7 };
+  if (roundedPct >= 55) return { letter: 'C+', gp: 2.3 };
+  if (roundedPct >= 50) return { letter: 'C', gp: 2.0 };
+  if (roundedPct >= 40) return { letter: 'D', gp: 1.0 };
   return { letter: 'F', gp: 0.0 };
 }
 
@@ -78,4 +80,167 @@ export function calculateSubjectGPA(
     isCapped,
     effectiveInternal
   };
+}
+
+export function generateInsights(subjects: Subject[], marks: Record<string, SubjectMarks>): PerformanceInsight {
+  const cappingRisks: { subject: string; loss: number }[] = [];
+  const impactSubjects: { subject: string; weight: number }[] = [];
+  const strengthZones: { category: string; subjects: string[] }[] = [];
+  const optimizationPoints: { text: string; gpaIncrease: number }[] = [];
+
+  const percentages = subjects.map(s => {
+    const m = marks[s.id] || { theory: null, internal: null, practical: null };
+    const res = calculateSubjectGPA(m.theory, s.theoryFull, m.internal, s.internalFull, m.practical, s.practicalFull);
+    return res.percentage;
+  });
+
+  const mean = percentages.reduce((a, b) => a + b, 0) / percentages.length;
+  const variance = percentages.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / percentages.length;
+  const stdDev = Math.sqrt(variance);
+  const cv = mean > 0 ? (stdDev / mean) * 100 : 0;
+
+  const categories: Record<string, string[]> = {
+    'Analytical': ['Mathematics', 'Statistics', 'Numerical', 'Probability'],
+    'Applied': ['Mechanics', 'Dynamics', 'Structures', 'Thermodynamics', 'Hydraulics', 'Hydrology', 'Soil', 'Survey'],
+    'Lab-based': ['Programming', 'Workshop', 'Drawing', 'Studio', 'Graphics', 'Sketching', 'Project', 'Internship']
+  };
+
+  const currentResults = subjects.map(s => {
+    const m = marks[s.id] || { theory: null, internal: null, practical: null };
+    return {
+      subject: s,
+      res: calculateSubjectGPA(m.theory, s.theoryFull, m.internal, s.internalFull, m.practical, s.practicalFull)
+    };
+  });
+
+  const totalCredits = subjects.reduce((acc, s) => acc + s.credits, 0);
+  const currentGPA = totalCredits > 0 ? currentResults.reduce((acc, r) => acc + r.res.grade.gp * r.subject.credits, 0) / totalCredits : 0;
+
+  currentResults.forEach(({ subject, res }) => {
+    // Capping Risk
+    if (res.isCapped) {
+      const m = marks[subject.id];
+      const loss = (m.internal || 0) - res.effectiveInternal;
+      cappingRisks.push({ subject: subject.name, loss });
+    }
+
+    // Impact
+    impactSubjects.push({ subject: subject.name, weight: subject.credits });
+
+    // Strength Zones
+    let categorized = false;
+    for (const [cat, keywords] of Object.entries(categories)) {
+      if (keywords.some(k => subject.name.includes(k))) {
+        const zone = strengthZones.find(z => z.category === cat);
+        if (zone) zone.subjects.push(subject.name);
+        else strengthZones.push({ category: cat, subjects: [subject.name] });
+        categorized = true;
+        break;
+      }
+    }
+    if (!categorized) {
+      const zone = strengthZones.find(z => z.category === 'Others');
+      if (zone) zone.subjects.push(subject.name);
+      else strengthZones.push({ category: 'Others', subjects: [subject.name] });
+    }
+  });
+
+  // Optimization Points (What-If)
+  subjects.forEach(s => {
+    const m = marks[s.id] || { theory: null, internal: null, practical: null };
+    if (s.theoryFull > 0 && m.theory !== null && m.theory < s.theoryFull) {
+      const improvedTheory = Math.min(s.theoryFull, m.theory + 5);
+      const improvedRes = calculateSubjectGPA(improvedTheory, s.theoryFull, m.internal, s.internalFull, m.practical, s.practicalFull);
+      
+      const newTotalPoints = currentResults.reduce((acc, r) => {
+        if (r.subject.id === s.id) return acc + improvedRes.grade.gp * s.credits;
+        return acc + r.res.grade.gp * r.subject.credits;
+      }, 0);
+      
+      const newGPA = newTotalPoints / totalCredits;
+      if (newGPA > currentGPA) {
+        optimizationPoints.push({
+          text: `If you scored 5 more marks in ${s.name} theory, your GPA would increase to ${newGPA.toFixed(2)}.`,
+          gpaIncrease: newGPA - currentGPA
+        });
+      }
+    }
+  });
+
+  return {
+    cappingRisks,
+    impactSubjects: impactSubjects.sort((a, b) => b.weight - a.weight).slice(0, 3),
+    strengthZones,
+    optimizationPoints: optimizationPoints.sort((a, b) => b.gpaIncrease - a.gpaIncrease).slice(0, 3),
+    cv
+  };
+}
+
+export function simulateTargetGPA(subjects: Subject[], targetGPA: number): Record<string, SubjectMarks> | string {
+  if (targetGPA > 4.0) return "Feasibility Error: Maximum possible GPA is 4.0.";
+  if (targetGPA < 0) return "Feasibility Error: Minimum possible GPA is 0.0.";
+
+  const totalCredits = subjects.reduce((acc, s) => acc + s.credits, 0);
+  const requiredPoints = targetGPA * totalCredits;
+
+  // Try to find a distribution
+  // We'll use a simple heuristic: start with all subjects at 40% (pass)
+  // then increment percentages until we reach the target GPA
+  
+  const marks: Record<string, SubjectMarks> = {};
+  subjects.forEach(s => {
+    marks[s.id] = {
+      theory: s.theoryFull > 0 ? Math.ceil(0.4 * s.theoryFull) : 0,
+      internal: s.internalFull > 0 ? Math.ceil(0.4 * s.internalFull) : 0,
+      practical: s.practicalFull > 0 ? Math.ceil(0.4 * s.practicalFull) : 0
+    };
+  });
+
+  const getPoints = (m: Record<string, SubjectMarks>) => {
+    return subjects.reduce((acc, s) => {
+      const res = calculateSubjectGPA(m[s.id].theory, s.theoryFull, m[s.id].internal, s.internalFull, m[s.id].practical, s.practicalFull);
+      return acc + res.grade.gp * s.credits;
+    }, 0);
+  };
+
+  let currentPoints = getPoints(marks);
+  if (currentPoints > requiredPoints) {
+     // Even at pass marks, we exceed target. This is fine, just return pass marks.
+     return marks;
+  }
+
+  // Greedy approach: increment subjects one by one to the next grade boundary
+  const gradeBoundaries = [50, 55, 60, 65, 70, 75, 80];
+  
+  let improved = true;
+  while (currentPoints < requiredPoints && improved) {
+    improved = false;
+    for (const s of subjects) {
+      const m = marks[s.id];
+      const totalFull = s.theoryFull + s.internalFull + s.practicalFull;
+      const currentPct = ((m.theory || 0) + (m.internal || 0) + (m.practical || 0)) / totalFull * 100;
+      
+      const nextBoundary = gradeBoundaries.find(b => b > currentPct);
+      if (nextBoundary) {
+        const neededTotal = Math.ceil((nextBoundary / 100) * totalFull);
+        const currentTotal = (m.theory || 0) + (m.internal || 0) + (m.practical || 0);
+        const diff = neededTotal - currentTotal;
+        
+        // Distribute diff
+        if (s.theoryFull > 0) m.theory = Math.min(s.theoryFull, (m.theory || 0) + diff);
+        else if (s.practicalFull > 0) m.practical = Math.min(s.practicalFull, (m.practical || 0) + diff);
+        else if (s.internalFull > 0) m.internal = Math.min(s.internalFull, (m.internal || 0) + diff);
+        
+        currentPoints = getPoints(marks);
+        improved = true;
+        if (currentPoints >= requiredPoints) break;
+      }
+    }
+  }
+
+  if (currentPoints < requiredPoints) {
+    return "Feasibility Error: Target GPA is mathematically impossible with the current syllabus constraints.";
+  }
+
+  return marks;
 }

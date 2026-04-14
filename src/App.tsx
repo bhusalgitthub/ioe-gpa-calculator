@@ -1,12 +1,16 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Calculator, BookOpen, Download, RotateCcw, Plus, Trash2, ChevronDown } from 'lucide-react';
+import { Calculator, BookOpen, Download, RotateCcw, Plus, Trash2, ChevronDown, BarChart3, Target, Sparkles, AlertTriangle, TrendingUp, BrainCircuit } from 'lucide-react';
 import { Faculty, Subject, SubjectMarks, SemesterResult } from './types';
 import { SUBJECT_DATABASE } from './data/subjects';
-import { calculateSubjectGPA, getDivision } from './lib/calculations';
+import { calculateSubjectGPA, getDivision, generateInsights, simulateTargetGPA } from './lib/calculations';
+import GoogleAd from './components/GoogleAd';
+import { getExpertAnalysis } from './services/aiService';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
+import Markdown from 'react-markdown';
 
 export default function App() {
-  const [mode, setMode] = useState<'semester' | 'aggregate'>('semester');
+  const [mode, setMode] = useState<'semester' | 'aggregate' | 'stats' | 'simulator'>('semester');
   const [faculty, setFaculty] = useState<Faculty | ''>(() => (localStorage.getItem('ioe_faculty') as Faculty) || '');
   const [semester, setSemester] = useState<number | ''>(() => {
     const saved = localStorage.getItem('ioe_semester');
@@ -20,6 +24,10 @@ export default function App() {
     const saved = localStorage.getItem('ioe_aggregate');
     return saved ? JSON.parse(saved) : [{ id: '1', gpa: 0, credits: 0 }];
   });
+
+  const [targetGPA, setTargetGPA] = useState(3.6);
+  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   // Persistence effects
   useEffect(() => {
@@ -123,38 +131,43 @@ export default function App() {
   return (
     <div className="min-h-screen bg-white pb-20">
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-[--color-apple-border] px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 no-print">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center shrink-0">
-            <Calculator className="text-white w-5 h-5" />
+      <header className="bg-white border-b border-[--color-apple-border] px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-4 no-print">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-black/10">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M18 6H6L12 12L6 18H18" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
           </div>
           <div className="text-center sm:text-left">
-            <h1 className="text-base sm:text-lg font-semibold tracking-tight">IOE GPA Calculator (Syllabus 2081)</h1>
-            <p className="text-[9px] sm:text-[10px] text-[--color-apple-gray] font-medium uppercase tracking-widest">Institute of Engineering</p>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-black">IOE GPA Calculator</h1>
+            <p className="text-[10px] sm:text-[11px] text-[--color-apple-gray] font-bold uppercase tracking-[0.2em]">Official Syllabus 2081 Criteria</p>
           </div>
         </div>
       </header>
 
       <main className="max-w-4xl mx-auto px-6 pt-10">
         {/* Mode Switcher */}
-        <div className="flex justify-center mb-12 no-print">
-          <div className="bg-[--color-apple-bg] p-1 rounded-xl flex gap-1 border border-[--color-apple-border]">
-            <button
-              onClick={() => setMode('semester')}
-              className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all ${
-                mode === 'semester' ? 'bg-white shadow-sm text-black' : 'text-[--color-apple-gray] hover:text-black'
-              }`}
-            >
-              Semester GPA
-            </button>
-            <button
-              onClick={() => setMode('aggregate')}
-              className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all ${
-                mode === 'aggregate' ? 'bg-white shadow-sm text-black' : 'text-[--color-apple-gray] hover:text-black'
-              }`}
-            >
-              Aggregate CGPA
-            </button>
+        <div className="flex justify-center mb-16 no-print overflow-x-auto pb-4">
+          <div className="bg-black/[0.03] p-1.5 rounded-2xl flex gap-1.5 border border-black/[0.05] shadow-inner shrink-0">
+            {[
+              { id: 'semester', label: 'Semester GPA', icon: Calculator },
+              { id: 'aggregate', label: 'Aggregate CGPA', icon: TrendingUp },
+              { id: 'stats', label: 'Statistics', icon: BarChart3 },
+              { id: 'simulator', label: 'Target Simulator', icon: Target },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setMode(tab.id as any)}
+                className={`relative px-6 py-3 rounded-xl text-xs font-bold transition-all duration-300 border-2 flex items-center gap-2 whitespace-nowrap ${
+                  mode === tab.id 
+                    ? 'bg-white text-black shadow-[0_4px_12px_rgba(0,0,0,0.08)] scale-[1.02] border-black' 
+                    : 'text-[--color-apple-gray] hover:text-black hover:bg-black/[0.02] border-transparent'
+                }`}
+              >
+                <tab.icon className="w-4 h-4" />
+                {tab.label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -179,7 +192,9 @@ export default function App() {
                     >
                       <option value="">Select Faculty</option>
                       {Object.keys(SUBJECT_DATABASE).map(f => (
-                        <option key={f} value={f}>{f} Engineering</option>
+                        <option key={f} value={f}>
+                          {f === 'Architecture' ? f : `${f} Engineering`}
+                        </option>
                       ))}
                     </select>
                     <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[--color-apple-gray] pointer-events-none" />
@@ -194,9 +209,12 @@ export default function App() {
                       className="apple-input appearance-none pr-10 h-11"
                     >
                       <option value="">Select Semester</option>
-                      {[1, 2, 3, 4, 5, 6, 7, 8].map(s => (
-                        <option key={s} value={s}>{s}{s === 1 ? 'st' : s === 2 ? 'nd' : s === 3 ? 'rd' : 'th'} Semester</option>
-                      ))}
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(s => {
+                        if (faculty !== 'Architecture' && s > 8) return null;
+                        return (
+                          <option key={s} value={s}>{s}{s === 1 ? 'st' : s === 2 ? 'nd' : s === 3 ? 'rd' : 'th'} Semester</option>
+                        );
+                      })}
                     </select>
                     <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[--color-apple-gray] pointer-events-none" />
                   </div>
@@ -229,11 +247,7 @@ export default function App() {
                   </div>
 
                   {/* Post-Calculation Ad */}
-                  <div className="w-full flex justify-center no-print">
-                    <div className="w-full h-[100px] bg-[--color-apple-bg] border border-[--color-apple-border] rounded-xl flex items-center justify-center text-[--color-apple-gray] text-[10px] font-bold uppercase tracking-widest">
-                      Advertisement — Success Banner (Responsive)
-                    </div>
-                  </div>
+                  <GoogleAd adSlot="2297473424" className="my-6" />
 
                   {/* Subjects Table */}
                   <div className="apple-card">
@@ -242,7 +256,7 @@ export default function App() {
                         <thead>
                           <tr className="bg-[--color-apple-bg] border-b border-[--color-apple-border]">
                             <th className="px-6 py-4 text-[10px] font-bold text-[--color-apple-gray] uppercase">Subject</th>
-                            <th className="px-4 py-4 text-[10px] font-bold text-[--color-apple-gray] uppercase text-center">Cr</th>
+                            <th className="px-4 py-4 text-[10px] font-bold text-[--color-apple-gray] uppercase text-center">Credit</th>
                             <th className="px-4 py-4 text-[10px] font-bold text-[--color-apple-gray] uppercase text-center">Theory</th>
                             <th className="px-4 py-4 text-[10px] font-bold text-[--color-apple-gray] uppercase text-center">Internal</th>
                             <th className="px-4 py-4 text-[10px] font-bold text-[--color-apple-gray] uppercase text-center">Practical</th>
@@ -271,7 +285,7 @@ export default function App() {
                                       <input
                                         type="number"
                                         placeholder="—"
-                                        value={m.theory ?? ''}
+                                        value={m.theory === null || isNaN(m.theory) ? '' : m.theory}
                                         onChange={(e) => handleMarkChange(s.id, 'theory', e.target.value, s.theoryFull)}
                                         className={`apple-input w-16 text-center h-8 ${m.theory !== null && m.theory < s.theoryFull * 0.4 ? 'border-red-500 text-red-600' : ''}`}
                                       />
@@ -285,7 +299,7 @@ export default function App() {
                                       <input
                                         type="number"
                                         placeholder="—"
-                                        value={m.internal ?? ''}
+                                        value={m.internal === null || isNaN(m.internal) ? '' : m.internal}
                                         onChange={(e) => handleMarkChange(s.id, 'internal', e.target.value, s.internalFull)}
                                         className={`apple-input w-16 text-center h-8 ${m.internal !== null && m.internal < s.internalFull * 0.4 ? 'border-red-500 text-red-600' : ''}`}
                                       />
@@ -299,7 +313,7 @@ export default function App() {
                                       <input
                                         type="number"
                                         placeholder="—"
-                                        value={m.practical ?? ''}
+                                        value={m.practical === null || isNaN(m.practical) ? '' : m.practical}
                                         onChange={(e) => handleMarkChange(s.id, 'practical', e.target.value, s.practicalFull)}
                                         className={`apple-input w-16 text-center h-8 ${m.practical !== null && m.practical < s.practicalFull * 0.4 ? 'border-red-500 text-red-600' : ''}`}
                                       />
@@ -353,7 +367,7 @@ export default function App() {
 
                   {/* Methodology Section */}
                   <div className="apple-card p-10 bg-white border border-[--color-apple-border] no-print">
-                    <h3 className="text-sm font-bold uppercase tracking-widest mb-12 text-center">Academic Methodology & Standards</h3>
+                    <h2 className="text-sm font-bold uppercase tracking-widest mb-12 text-center">How to Calculate IOE CGPA & GPA</h2>
                     
                     <div className="space-y-16">
                       {/* I. The 20% Threshold Rule */}
@@ -365,7 +379,6 @@ export default function App() {
                         
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
                           <div className="space-y-4">
-                            <h3 className="text-[10px] font-bold text-black uppercase tracking-widest">The "Anchor Principle"</h3>
                             <p className="text-xs text-[--color-apple-gray] leading-relaxed">
                               In the IOE system, your college internal marks are not "set in stone." They are <span className="text-black font-semibold">anchored</span> to your performance in the Final Board Exam. This ensures that internal marks reflect the academic capability demonstrated in the standardized final exam.
                             </p>
@@ -410,11 +423,7 @@ export default function App() {
                       </section>
 
                       {/* Methodology Ad */}
-                      <div className="w-full flex justify-center no-print">
-                        <div className="w-full h-[90px] bg-[--color-apple-bg] border border-[--color-apple-border] rounded-xl flex items-center justify-center text-[--color-apple-gray] text-[10px] font-bold uppercase tracking-widest">
-                          Advertisement — Content Break (Responsive)
-                        </div>
-                      </div>
+                      <GoogleAd adSlot="3174832011" className="my-8" />
 
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
                         {/* II. Separate Pass Criteria */}
@@ -456,11 +465,7 @@ export default function App() {
                           </div>
                           
                           {/* Formula Ad */}
-                          <div className="pt-4 no-print">
-                            <div className="w-full h-[60px] bg-[--color-apple-bg] border border-[--color-apple-border] rounded-lg flex items-center justify-center text-[--color-apple-gray] text-[9px] font-bold uppercase tracking-widest">
-                              Advertisement — Formula Banner
-                            </div>
-                          </div>
+                          <GoogleAd adSlot="9329785632" className="mt-4" />
                         </section>
 
                         {/* IV. Grading Scale */}
@@ -498,7 +503,7 @@ export default function App() {
                 </div>
               )}
             </motion.div>
-          ) : (
+          ) : mode === 'aggregate' ? (
             <motion.div
               key="aggregate"
               initial={{ opacity: 0, y: 10 }}
@@ -530,11 +535,7 @@ export default function App() {
               </div>
 
               {/* Post-Calculation Ad */}
-              <div className="w-full flex justify-center no-print">
-                <div className="w-full h-[100px] bg-[--color-apple-bg] border border-[--color-apple-border] rounded-xl flex items-center justify-center text-[--color-apple-gray] text-[10px] font-bold uppercase tracking-widest">
-                  Advertisement — Success Banner (Responsive)
-                </div>
-              </div>
+              <GoogleAd adSlot="2297473424" className="my-6" />
 
               {/* Semester Rows */}
               <div className="apple-card p-6 space-y-4">
@@ -557,10 +558,11 @@ export default function App() {
                         step="0.01"
                         min="0"
                         max="4"
-                        value={sem.gpa || ''}
+                        value={isNaN(sem.gpa) ? '' : sem.gpa}
                         onChange={(e) => {
+                          const val = e.target.value;
                           const newSems = [...aggregateSems];
-                          newSems[idx].gpa = parseFloat(e.target.value) || 0;
+                          newSems[idx].gpa = val === '' ? 0 : parseFloat(val) || 0;
                           setAggregateSems(newSems);
                         }}
                         className="apple-input text-center h-10"
@@ -571,10 +573,11 @@ export default function App() {
                       <input
                         type="number"
                         min="0"
-                        value={sem.credits || ''}
+                        value={isNaN(sem.credits) ? '' : sem.credits}
                         onChange={(e) => {
+                          const val = e.target.value;
                           const newSems = [...aggregateSems];
-                          newSems[idx].credits = parseFloat(e.target.value) || 0;
+                          newSems[idx].credits = val === '' ? 0 : parseFloat(val) || 0;
                           setAggregateSems(newSems);
                         }}
                         className="apple-input text-center h-10"
@@ -611,16 +614,284 @@ export default function App() {
                 </button>
               </div>
             </motion.div>
+          ) : mode === 'stats' ? (
+            <motion.div
+              key="stats"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-8"
+            >
+              {subjects.length > 0 ? (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    {/* Marks Distribution Chart */}
+                    <div className="apple-card p-6">
+                      <h3 className="text-sm font-bold uppercase tracking-widest mb-6 flex items-center gap-2">
+                        <BarChart3 className="w-4 h-4" />
+                        Marks Distribution
+                      </h3>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={subjects.map(s => {
+                            const m = marks[s.id] || { theory: 0, internal: 0, practical: 0 };
+                            const res = calculateSubjectGPA(m.theory, s.theoryFull, m.internal, s.internalFull, m.practical, s.practicalFull);
+                            return {
+                              name: s.name.split(' ').map(w => w[0]).join(''),
+                              fullName: s.name,
+                              obtained: res.totalObtained,
+                              full: res.totalFull,
+                              pct: res.percentage
+                            };
+                          })}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
+                            <Tooltip 
+                              contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' }}
+                              formatter={(value: any, name: any, props: any) => [`${value} / ${props.payload.full}`, 'Marks']}
+                              labelFormatter={(label, payload) => payload[0]?.payload?.fullName || label}
+                            />
+                            <Bar dataKey="obtained" radius={[4, 4, 0, 0]}>
+                              {subjects.map((_, index) => (
+                                <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#000' : '#666'} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    {/* Credit Weightage Pie */}
+                    <div className="apple-card p-6">
+                      <h3 className="text-sm font-bold uppercase tracking-widest mb-6 flex items-center gap-2">
+                        <PieChart className="w-4 h-4" />
+                        Credit Weightage
+                      </h3>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={subjects.map(s => ({ name: s.name, value: s.credits }))}
+                              innerRadius={60}
+                              outerRadius={80}
+                              paddingAngle={5}
+                              dataKey="value"
+                            >
+                              {subjects.map((_, index) => (
+                                <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#000' : '#ccc'} />
+                              ))}
+                            </Pie>
+                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' }} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Performance Insights */}
+                  <div className="apple-card p-8 space-y-8">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-bold uppercase tracking-widest flex items-center gap-2">
+                        <Sparkles className="w-4 h-4" />
+                        Performance Insights
+                      </h3>
+                      <button
+                        onClick={async () => {
+                          setIsAnalyzing(true);
+                          const result = await getExpertAnalysis({ subjects, marks, stats: semesterStats });
+                          setAiAnalysis(result);
+                          setIsAnalyzing(false);
+                        }}
+                        disabled={isAnalyzing}
+                        className="apple-button-secondary py-2 px-4 text-xs flex items-center gap-2"
+                      >
+                        <BrainCircuit className={`w-4 h-4 ${isAnalyzing ? 'animate-pulse' : ''}`} />
+                        {isAnalyzing ? 'Analyzing...' : 'Expert AI Analysis'}
+                      </button>
+                    </div>
+
+                    {aiAnalysis && (
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="bg-black/[0.02] p-6 rounded-2xl border border-black/[0.05] prose prose-sm max-w-none"
+                      >
+                        <Markdown>{aiAnalysis}</Markdown>
+                      </motion.div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      {/* Capping Audit */}
+                      <div className="space-y-4">
+                        <h4 className="text-[10px] font-bold text-[--color-apple-gray] uppercase flex items-center gap-2">
+                          <AlertTriangle className="w-3 h-3 text-amber-500" />
+                          20% Capping Audit
+                        </h4>
+                        <div className="space-y-2">
+                          {generateInsights(subjects, marks).cappingRisks.length > 0 ? (
+                            generateInsights(subjects, marks).cappingRisks.map((risk, i) => (
+                              <div key={i} className="p-3 bg-amber-50 rounded-xl border border-amber-100 flex justify-between items-center">
+                                <span className="text-xs font-semibold text-amber-900">{risk.subject}</span>
+                                <span className="text-[10px] font-bold text-amber-600">-{risk.loss.toFixed(1)} Marks Lost</span>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-xs text-[--color-apple-gray] italic">No capping risks detected. Internal marks are well-balanced.</p>
+                          )}
+                        </div>
+                        
+                        {/* CV Metric */}
+                        <div className="mt-6 p-4 bg-black/[0.02] rounded-2xl border border-black/[0.05]">
+                          <p className="text-[10px] font-bold text-[--color-apple-gray] uppercase mb-1">Consistency (CV)</p>
+                          <p className="text-2xl font-bold tracking-tighter">
+                            {generateInsights(subjects, marks).cv?.toFixed(1)}%
+                          </p>
+                          <p className="text-[10px] text-[--color-apple-gray] mt-1">
+                            { (generateInsights(subjects, marks).cv || 0) < 15 ? 'Excellent consistency across subjects.' : 'High variation in subject performance.' }
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Optimization Points */}
+                      <div className="space-y-4">
+                        <h4 className="text-[10px] font-bold text-[--color-apple-gray] uppercase flex items-center gap-2">
+                          <TrendingUp className="w-3 h-3 text-emerald-500" />
+                          Optimization Points
+                        </h4>
+                        <div className="space-y-2">
+                          {generateInsights(subjects, marks).optimizationPoints.map((point, i) => (
+                            <div key={i} className="p-3 bg-emerald-50 rounded-xl border border-emerald-100">
+                              <p className="text-xs text-emerald-900 leading-relaxed">{point.text}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="apple-card p-20 text-center border-dashed">
+                  <BarChart3 className="w-12 h-12 text-[--color-apple-border] mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold mb-2">No Data to Analyze</h3>
+                  <p className="text-sm text-[--color-apple-gray]">Please enter your marks in the Semester GPA tab first.</p>
+                </div>
+              )}
+            </motion.div>
+          ) : (
+            <motion.div
+              key="simulator"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-8"
+            >
+              <div className="apple-card p-10 text-center space-y-8">
+                <div className="max-w-md mx-auto space-y-6">
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-bold text-[--color-apple-gray] uppercase tracking-widest">Target Semester GPA</p>
+                    <h2 className="text-6xl font-bold tracking-tighter">{targetGPA.toFixed(2)}</h2>
+                  </div>
+                  
+                  <input
+                    type="range"
+                    min="2.0"
+                    max="4.0"
+                    step="0.01"
+                    value={targetGPA}
+                    onChange={(e) => setTargetGPA(parseFloat(e.target.value))}
+                    className="w-full h-2 bg-black/[0.05] rounded-lg appearance-none cursor-pointer accent-black"
+                  />
+                  
+                  <div className="flex justify-between text-[10px] font-bold text-[--color-apple-gray] uppercase">
+                    <span>2.00 (Pass)</span>
+                    <span>4.00 (Perfect)</span>
+                  </div>
+                </div>
+              </div>
+
+              {subjects.length > 0 ? (
+                <div className="space-y-6">
+                  <div className="apple-card overflow-hidden">
+                    <div className="bg-black text-white p-4 flex items-center gap-2">
+                      <Sparkles className="w-4 h-4" />
+                      <h3 className="text-xs font-bold uppercase tracking-widest">Suggested Marks Distribution</h3>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-[--color-apple-bg] border-b border-[--color-apple-border]">
+                            <th className="px-6 py-4 text-[10px] font-bold text-[--color-apple-gray] uppercase">Subject</th>
+                            <th className="px-4 py-4 text-[10px] font-bold text-[--color-apple-gray] uppercase text-center">Theory</th>
+                            <th className="px-4 py-4 text-[10px] font-bold text-[--color-apple-gray] uppercase text-center">Internal</th>
+                            <th className="px-4 py-4 text-[10px] font-bold text-[--color-apple-gray] uppercase text-center">Practical</th>
+                            <th className="px-6 py-4 text-[10px] font-bold text-[--color-apple-gray] uppercase text-right">Target Grade</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[--color-apple-border]">
+                          {(() => {
+                            const simulated = simulateTargetGPA(subjects, targetGPA);
+                            if (typeof simulated === 'string') {
+                              return (
+                                <tr>
+                                  <td colSpan={5} className="px-6 py-12 text-center">
+                                    <div className="max-w-sm mx-auto space-y-2">
+                                      <AlertTriangle className="w-8 h-8 text-red-500 mx-auto" />
+                                      <p className="text-sm font-bold text-red-600">{simulated}</p>
+                                      <p className="text-xs text-[--color-apple-gray]">Try lowering your target GPA or checking your syllabus constraints.</p>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            }
+                            return subjects.map(s => {
+                              const m = simulated[s.id];
+                              const res = calculateSubjectGPA(m.theory, s.theoryFull, m.internal, s.internalFull, m.practical, s.practicalFull);
+                              return (
+                                <tr key={s.id} className="hover:bg-[--color-apple-bg]/50 transition-colors">
+                                  <td className="px-6 py-4 text-sm font-semibold">{s.name}</td>
+                                  <td className="px-4 py-4 text-center text-sm">
+                                    {s.theoryFull > 0 ? `${m.theory} / ${s.theoryFull}` : '—'}
+                                  </td>
+                                  <td className="px-4 py-4 text-center text-sm">
+                                    {s.internalFull > 0 ? `${m.internal} / ${s.internalFull}` : '—'}
+                                  </td>
+                                  <td className="px-4 py-4 text-center text-sm">
+                                    {s.practicalFull > 0 ? `${m.practical} / ${s.practicalFull}` : '—'}
+                                  </td>
+                                  <td className="px-6 py-4 text-right">
+                                    <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-black text-white">
+                                      {res.grade.letter}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            });
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-[--color-apple-gray] text-center italic">
+                    * This distribution is a mathematical suggestion to reach your goal while ensuring all pass criteria are met.
+                  </p>
+                </div>
+              ) : (
+                <div className="apple-card p-20 text-center border-dashed">
+                  <Target className="w-12 h-12 text-[--color-apple-border] mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold mb-2">Select Faculty First</h3>
+                  <p className="text-sm text-[--color-apple-gray]">We need to know your subjects to simulate a target GPA.</p>
+                </div>
+              )}
+            </motion.div>
           )}
         </AnimatePresence>
       </main>
 
       {/* Bottom Leaderboard Ad */}
       <div className="w-full bg-[--color-apple-bg] border-t border-[--color-apple-border] py-6 mt-20 no-print">
-        <div className="max-w-4xl mx-auto flex justify-center px-6">
-          <div className="w-full max-w-[728px] h-[90px] bg-white border border-[--color-apple-border] rounded-lg flex items-center justify-center text-[--color-apple-gray] text-xs font-bold uppercase tracking-widest text-center px-4">
-            Advertisement — Bottom Leaderboard (728x90)
-          </div>
+        <div className="max-w-4xl mx-auto px-6">
+          <GoogleAd adSlot="4027702501" />
         </div>
       </div>
 

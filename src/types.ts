@@ -19,9 +19,17 @@ export interface SemesterResult {
   credits: number;
 }
 
-export type Faculty = 'Civil' | 'Computer' | 'BEI' | 'Mechanical' | 'Electrical';
+export type Faculty = 'Civil' | 'Computer' | 'BEI' | 'Mechanical' | 'Electrical' | 'Architecture';
 
 export interface GradeInfo {
   letter: string;
   gp: number;
+}
+
+export interface PerformanceInsight {
+  cappingRisks: { subject: string; loss: number }[];
+  impactSubjects: { subject: string; weight: number }[];
+  strengthZones: { category: string; subjects: string[] }[];
+  optimizationPoints: { text: string; gpaIncrease: number }[];
+  cv?: number;
 }
