@@ -213,27 +213,62 @@ export function simulateTargetGPA(subjects: Subject[], targetGPA: number): Recor
   const gradeBoundaries = [50, 55, 60, 65, 70, 75, 80];
   
   let improved = true;
-  while (currentPoints < requiredPoints && improved) {
+  let iterations = 0;
+  const maxIterations = 100; // Safety break
+
+  while (currentPoints < requiredPoints && improved && iterations < maxIterations) {
     improved = false;
+    iterations++;
+    
     for (const s of subjects) {
       const m = marks[s.id];
       const totalFull = s.theoryFull + s.internalFull + s.practicalFull;
-      const currentPct = ((m.theory || 0) + (m.internal || 0) + (m.practical || 0)) / totalFull * 100;
+      if (totalFull === 0) continue;
+
+      const currentTotal = (m.theory || 0) + (m.internal || 0) + (m.practical || 0);
+      const currentPct = (currentTotal / totalFull) * 100;
       
-      const nextBoundary = gradeBoundaries.find(b => b > currentPct);
+      const nextBoundary = gradeBoundaries.find(b => b > currentPct + 0.01); // Use small epsilon
       if (nextBoundary) {
         const neededTotal = Math.ceil((nextBoundary / 100) * totalFull);
-        const currentTotal = (m.theory || 0) + (m.internal || 0) + (m.practical || 0);
-        const diff = neededTotal - currentTotal;
+        let diff = neededTotal - currentTotal;
         
-        // Distribute diff
-        if (s.theoryFull > 0) m.theory = Math.min(s.theoryFull, (m.theory || 0) + diff);
-        else if (s.practicalFull > 0) m.practical = Math.min(s.practicalFull, (m.practical || 0) + diff);
-        else if (s.internalFull > 0) m.internal = Math.min(s.internalFull, (m.internal || 0) + diff);
+        if (diff <= 0) continue;
+
+        let changed = false;
+        // Distribute diff: Theory first, then Practical, then Internal
+        if (s.theoryFull > 0 && (m.theory || 0) < s.theoryFull) {
+          const canAdd = s.theoryFull - (m.theory || 0);
+          const toAdd = Math.min(diff, canAdd);
+          m.theory = (m.theory || 0) + toAdd;
+          diff -= toAdd;
+          if (toAdd > 0) changed = true;
+        }
         
-        currentPoints = getPoints(marks);
-        improved = true;
-        if (currentPoints >= requiredPoints) break;
+        if (diff > 0 && s.practicalFull > 0 && (m.practical || 0) < s.practicalFull) {
+          const canAdd = s.practicalFull - (m.practical || 0);
+          const toAdd = Math.min(diff, canAdd);
+          m.practical = (m.practical || 0) + toAdd;
+          diff -= toAdd;
+          if (toAdd > 0) changed = true;
+        }
+
+        if (diff > 0 && s.internalFull > 0 && (m.internal || 0) < s.internalFull) {
+          const canAdd = s.internalFull - (m.internal || 0);
+          const toAdd = Math.min(diff, canAdd);
+          m.internal = (m.internal || 0) + toAdd;
+          diff -= toAdd;
+          if (toAdd > 0) changed = true;
+        }
+        
+        if (changed) {
+          const newPoints = getPoints(marks);
+          if (newPoints > currentPoints) {
+            currentPoints = newPoints;
+            improved = true;
+          }
+          if (currentPoints >= requiredPoints) break;
+        }
       }
     }
   }

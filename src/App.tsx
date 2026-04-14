@@ -7,6 +7,8 @@ import { calculateSubjectGPA, getDivision, generateInsights, simulateTargetGPA }
 import GoogleAd from './components/GoogleAd';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 
+const EMPTY_ARRAY: any[] = [];
+
 export default function App() {
   const [mode, setMode] = useState<'semester' | 'aggregate' | 'stats' | 'simulator'>('semester');
   const [faculty, setFaculty] = useState<Faculty | ''>(() => (localStorage.getItem('ioe_faculty') as Faculty) || '');
@@ -42,18 +44,27 @@ export default function App() {
   // Load subjects when faculty/semester changes
   const subjects = useMemo(() => {
     if (faculty && semester) {
-      return SUBJECT_DATABASE[faculty][semester as number] || [];
+      return SUBJECT_DATABASE[faculty][semester as number] || EMPTY_ARRAY;
     }
-    return [];
+    return EMPTY_ARRAY;
   }, [faculty, semester]);
 
-  // Initialize marks when subjects change
+  // Initialize marks when subjects change (without overwriting existing marks)
   useEffect(() => {
-    const newMarks: Record<string, SubjectMarks> = {};
-    subjects.forEach(s => {
-      newMarks[s.id] = { theory: null, internal: null, practical: null };
+    if (subjects.length === 0) return;
+    
+    setMarks(prev => {
+      const needsInit = subjects.some(s => !prev[s.id]);
+      if (!needsInit) return prev;
+      
+      const newMarks = { ...prev };
+      subjects.forEach(s => {
+        if (!newMarks[s.id]) {
+          newMarks[s.id] = { theory: null, internal: null, practical: null };
+        }
+      });
+      return newMarks;
     });
-    setMarks(newMarks);
   }, [subjects]);
 
   const handleMarkChange = (subjectId: string, field: keyof SubjectMarks, value: string, max: number) => {
@@ -112,6 +123,36 @@ export default function App() {
     return { cgpa, totalCredits, totalPoints };
   }, [aggregateSems]);
 
+  const insights = useMemo(() => {
+    if (subjects.length === 0 || mode !== 'stats') return null;
+    return generateInsights(subjects, marks);
+  }, [subjects, marks, mode]);
+
+  const simulatedMarks = useMemo(() => {
+    if (subjects.length === 0 || mode !== 'simulator') return null;
+    return simulateTargetGPA(subjects, targetGPA);
+  }, [subjects, targetGPA, mode]);
+
+  const chartData = useMemo(() => {
+    if (mode !== 'stats') return [];
+    return subjects.map(s => {
+      const m = marks[s.id] || { theory: 0, internal: 0, practical: 0 };
+      const res = calculateSubjectGPA(m.theory, s.theoryFull, m.internal, s.internalFull, m.practical, s.practicalFull);
+      return {
+        name: s.name.split(' ').map(w => w[0]).join(''),
+        fullName: s.name,
+        obtained: res.totalObtained,
+        full: res.totalFull,
+        pct: res.percentage
+      };
+    });
+  }, [subjects, marks, mode]);
+
+  const weightageData = useMemo(() => {
+    if (mode !== 'stats') return [];
+    return subjects.map(s => ({ name: s.name, value: s.credits }));
+  }, [subjects, mode]);
+
   const handleExport = () => {
     window.print();
   };
@@ -125,7 +166,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-white pb-20">
+    <div className="min-h-screen bg-white pb-10 sm:pb-20">
       {/* Header */}
       <header className="bg-white border-b border-[--color-apple-border] px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-4 no-print">
         <div className="flex items-center gap-4">
@@ -141,9 +182,9 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-6 pt-10">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 pt-6 sm:pt-10">
         {/* Mode Switcher */}
-        <div className="flex justify-center mb-16 no-print overflow-x-auto pb-4">
+        <div className="flex justify-center mb-8 sm:mb-16 no-print overflow-x-auto pb-4">
           <div className="bg-black/[0.03] p-1.5 rounded-2xl flex gap-1.5 border border-black/[0.05] shadow-inner shrink-0">
             {[
               { id: 'semester', label: 'Semester GPA', icon: Calculator },
@@ -220,7 +261,7 @@ export default function App() {
               {subjects.length > 0 ? (
                 <div className="space-y-6">
                   {/* Summary Card */}
-                  <div className="apple-card p-6 sm:p-8 flex flex-col md:flex-row items-center justify-between gap-8 border-none bg-black text-white">
+                  <div className="apple-card p-6 sm:p-8 flex flex-col md:flex-row items-center justify-between gap-8 border-none !bg-black !text-white">
                     <div className="text-center md:text-left">
                       <p className="text-[10px] sm:text-xs font-medium text-white/60 uppercase tracking-widest mb-1">Semester GPA</p>
                       <h2 className="text-4xl sm:text-6xl font-bold tracking-tighter">{semesterStats.gpa.toFixed(2)}</h2>
@@ -362,7 +403,7 @@ export default function App() {
                   </div>
 
                   {/* Methodology Section */}
-                  <div className="apple-card p-10 bg-white border border-[--color-apple-border] no-print">
+                  <div className="apple-card p-6 sm:p-10 bg-white border border-[--color-apple-border] no-print">
                     <h2 className="text-sm font-bold uppercase tracking-widest mb-12 text-center">How to Calculate IOE CGPA & GPA</h2>
                     
                     <div className="space-y-16">
@@ -508,7 +549,7 @@ export default function App() {
               className="space-y-8"
             >
               {/* Aggregate Summary */}
-                <div className="apple-card p-6 sm:p-8 flex flex-col md:flex-row items-center justify-between gap-8 border-none bg-black text-white">
+                <div className="apple-card p-6 sm:p-8 flex flex-col md:flex-row items-center justify-between gap-8 border-none !bg-black !text-white">
                   <div className="text-center md:text-left">
                     <p className="text-[10px] sm:text-xs font-medium text-white/60 uppercase tracking-widest mb-1">Cumulative GPA (CGPA)</p>
                     <h2 className="text-4xl sm:text-6xl font-bold tracking-tighter">{aggregateStats.cgpa.toFixed(2)}</h2>
@@ -629,17 +670,7 @@ export default function App() {
                       </h3>
                       <div className="h-64">
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={subjects.map(s => {
-                            const m = marks[s.id] || { theory: 0, internal: 0, practical: 0 };
-                            const res = calculateSubjectGPA(m.theory, s.theoryFull, m.internal, s.internalFull, m.practical, s.practicalFull);
-                            return {
-                              name: s.name.split(' ').map(w => w[0]).join(''),
-                              fullName: s.name,
-                              obtained: res.totalObtained,
-                              full: res.totalFull,
-                              pct: res.percentage
-                            };
-                          })}>
+                          <BarChart data={chartData}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                             <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
                             <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
@@ -668,7 +699,7 @@ export default function App() {
                         <ResponsiveContainer width="100%" height="100%">
                           <PieChart>
                             <Pie
-                              data={subjects.map(s => ({ name: s.name, value: s.credits }))}
+                              data={weightageData}
                               innerRadius={60}
                               outerRadius={80}
                               paddingAngle={5}
@@ -686,7 +717,7 @@ export default function App() {
                   </div>
 
                   {/* Performance Insights */}
-                  <div className="apple-card p-8 space-y-8">
+                  <div className="apple-card p-6 sm:p-8 space-y-8">
                     <div className="flex items-center justify-between">
                       <h3 className="text-sm font-bold uppercase tracking-widest flex items-center gap-2">
                         <TrendingUp className="w-4 h-4" />
@@ -702,8 +733,8 @@ export default function App() {
                           20% Capping Audit
                         </h4>
                         <div className="space-y-2">
-                          {generateInsights(subjects, marks).cappingRisks.length > 0 ? (
-                            generateInsights(subjects, marks).cappingRisks.map((risk, i) => (
+                          {insights && insights.cappingRisks.length > 0 ? (
+                            insights.cappingRisks.map((risk, i) => (
                               <div key={i} className="p-3 bg-amber-50 rounded-xl border border-amber-100 flex justify-between items-center">
                                 <span className="text-xs font-semibold text-amber-900">{risk.subject}</span>
                                 <span className="text-[10px] font-bold text-amber-600">-{risk.loss.toFixed(1)} Marks Lost</span>
@@ -718,10 +749,10 @@ export default function App() {
                         <div className="mt-6 p-4 bg-black/[0.02] rounded-2xl border border-black/[0.05]">
                           <p className="text-[10px] font-bold text-[--color-apple-gray] uppercase mb-1">Consistency (CV)</p>
                           <p className="text-2xl font-bold tracking-tighter">
-                            {generateInsights(subjects, marks).cv?.toFixed(1)}%
+                            {insights?.cv?.toFixed(1)}%
                           </p>
                           <p className="text-[10px] text-[--color-apple-gray] mt-1">
-                            { (generateInsights(subjects, marks).cv || 0) < 15 ? 'Excellent consistency across subjects.' : 'High variation in subject performance.' }
+                            { (insights?.cv || 0) < 15 ? 'Excellent consistency across subjects.' : 'High variation in subject performance.' }
                           </p>
                         </div>
                       </div>
@@ -733,7 +764,7 @@ export default function App() {
                           Optimization Points
                         </h4>
                         <div className="space-y-2">
-                          {generateInsights(subjects, marks).optimizationPoints.map((point, i) => (
+                          {insights?.optimizationPoints.map((point, i) => (
                             <div key={i} className="p-3 bg-emerald-50 rounded-xl border border-emerald-100">
                               <p className="text-xs text-emerald-900 leading-relaxed">{point.text}</p>
                             </div>
@@ -759,10 +790,10 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               className="space-y-8"
             >
-              <div className="apple-card p-10 text-center space-y-8">
+              <div className="apple-card p-6 sm:p-10 text-center space-y-8 !bg-black !text-white border-none">
                 <div className="max-w-md mx-auto space-y-6">
                   <div className="space-y-2">
-                    <p className="text-[10px] font-bold text-[--color-apple-gray] uppercase tracking-widest">Target Semester GPA</p>
+                    <p className="text-[10px] font-bold text-white/50 uppercase tracking-widest">Target Semester GPA</p>
                     <h2 className="text-6xl font-bold tracking-tighter">{targetGPA.toFixed(2)}</h2>
                   </div>
                   
@@ -773,10 +804,10 @@ export default function App() {
                     step="0.01"
                     value={targetGPA}
                     onChange={(e) => setTargetGPA(parseFloat(e.target.value))}
-                    className="w-full h-2 bg-black/[0.05] rounded-lg appearance-none cursor-pointer accent-black"
+                    className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-white"
                   />
                   
-                  <div className="flex justify-between text-[10px] font-bold text-[--color-apple-gray] uppercase">
+                  <div className="flex justify-between text-[10px] font-bold text-white/50 uppercase">
                     <span>2.00 (Pass)</span>
                     <span>4.00 (Perfect)</span>
                   </div>
@@ -803,14 +834,14 @@ export default function App() {
                         </thead>
                         <tbody className="divide-y divide-[--color-apple-border]">
                           {(() => {
-                            const simulated = simulateTargetGPA(subjects, targetGPA);
-                            if (typeof simulated === 'string') {
+                            if (!simulatedMarks) return null;
+                            if (typeof simulatedMarks === 'string') {
                               return (
                                 <tr>
                                   <td colSpan={5} className="px-6 py-12 text-center">
                                     <div className="max-w-sm mx-auto space-y-2">
                                       <AlertTriangle className="w-8 h-8 text-red-500 mx-auto" />
-                                      <p className="text-sm font-bold text-red-600">{simulated}</p>
+                                      <p className="text-sm font-bold text-red-600">{simulatedMarks}</p>
                                       <p className="text-xs text-[--color-apple-gray]">Try lowering your target GPA or checking your syllabus constraints.</p>
                                     </div>
                                   </td>
@@ -818,7 +849,7 @@ export default function App() {
                               );
                             }
                             return subjects.map(s => {
-                              const m = simulated[s.id];
+                              const m = simulatedMarks[s.id];
                               const res = calculateSubjectGPA(m.theory, s.theoryFull, m.internal, s.internalFull, m.practical, s.practicalFull);
                               return (
                                 <tr key={s.id} className="hover:bg-[--color-apple-bg]/50 transition-colors">
@@ -862,7 +893,7 @@ export default function App() {
       </main>
 
       {/* Bottom Leaderboard Ad */}
-      <div className="w-full bg-[--color-apple-bg] border-t border-[--color-apple-border] py-6 mt-20 no-print">
+      <div className="w-full bg-[--color-apple-bg] border-t border-[--color-apple-border] py-6 mt-6 sm:mt-20 no-print">
         <div className="max-w-4xl mx-auto px-6">
           <GoogleAd adSlot="4027702501" />
         </div>

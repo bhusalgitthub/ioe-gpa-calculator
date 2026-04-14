@@ -1,4 +1,4 @@
-import { useEffect, CSSProperties } from 'react';
+import { useEffect, CSSProperties, memo } from 'react';
 
 interface GoogleAdProps {
   adSlot: string;
@@ -14,7 +14,7 @@ declare global {
   }
 }
 
-export default function GoogleAd({ adSlot, className = '', style = { display: 'block' }, format = 'auto', responsive = 'true' }: GoogleAdProps) {
+const GoogleAd = memo(({ adSlot, className = '', style = { display: 'block' }, format = 'auto', responsive = 'true' }: GoogleAdProps) => {
   useEffect(() => {
     try {
       (window.adsbygoogle = window.adsbygoogle || []).push({});
@@ -35,4 +35,6 @@ export default function GoogleAd({ adSlot, className = '', style = { display: 'b
       />
     </div>
   );
-}
+});
+
+export default GoogleAd;
