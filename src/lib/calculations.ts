@@ -1,4 +1,4 @@
-import { GradeInfo, Subject, SubjectMarks, PerformanceInsight } from '../types';
+import { GradeInfo, Subject, SubjectMarks, PerformanceInsight, SemesterResult } from '../types';
 
 export function getGrade(pct: number): GradeInfo {
   // Rounding to 2 decimal places for boundary cases
@@ -82,28 +82,37 @@ export function calculateSubjectGPA(
   };
 }
 
+export function calculateWeightedCGPA(semesters: SemesterResult[]): number {
+  // Weightage mapping: Sem 1-4: 10%, Sem 5-8: 15%
+  // For Architecture (10 sems), we assume the last 2 years are 15% each sem and first 3 are 10%?
+  // Actually the image shows 4 years. Let's stick to the 8 sem model for weighting.
+  // If more than 8 sems, we'll normalize.
+  
+  const weights = [0.1, 0.1, 0.1, 0.1, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15]; // Up to 10 sems
+  
+  let totalWeight = 0;
+  let weightedPoints = 0;
+  
+  semesters.forEach((sem, index) => {
+    if (sem.gpa > 0) {
+      const w = weights[index] || 0.15;
+      weightedPoints += sem.gpa * w;
+      totalWeight += w;
+    }
+  });
+  
+  return totalWeight > 0 ? weightedPoints / totalWeight : 0;
+}
+
 export function generateInsights(subjects: Subject[], marks: Record<string, SubjectMarks>): PerformanceInsight {
-  const cappingRisks: { subject: string; loss: number }[] = [];
+  const cappingRisks: { subject: string; loss: number; severity: 'low' | 'medium' | 'high' }[] = [];
   const impactSubjects: { subject: string; weight: number }[] = [];
   const strengthZones: { category: string; subjects: string[] }[] = [];
   const optimizationPoints: { text: string; gpaIncrease: number }[] = [];
-
-  const percentages = subjects.map(s => {
-    const m = marks[s.id] || { theory: null, internal: null, practical: null };
-    const res = calculateSubjectGPA(m.theory, s.theoryFull, m.internal, s.internalFull, m.practical, s.practicalFull);
-    return res.percentage;
-  });
-
-  const mean = percentages.reduce((a, b) => a + b, 0) / percentages.length;
-  const variance = percentages.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / percentages.length;
-  const stdDev = Math.sqrt(variance);
-  const cv = mean > 0 ? (stdDev / mean) * 100 : 0;
-
-  const categories: Record<string, string[]> = {
-    'Analytical': ['Mathematics', 'Statistics', 'Numerical', 'Probability'],
-    'Applied': ['Mechanics', 'Dynamics', 'Structures', 'Thermodynamics', 'Hydraulics', 'Hydrology', 'Soil', 'Survey'],
-    'Lab-based': ['Programming', 'Workshop', 'Drawing', 'Studio', 'Graphics', 'Sketching', 'Project', 'Internship']
-  };
+  const nearMisses: { subject: string; marksToNext: number; nextGrade: string; gpaLoss: number; isClutch: boolean }[] = [];
+  const carrySubjects: { subject: string; impact: number }[] = [];
+  const anchorSubjects: { subject: string; impact: number }[] = [];
+  const roiData: { subject: string; credits: number; percentage: number; zone: 'Danger' | 'Easy Wins' | 'Golden' | 'Neutral' }[] = [];
 
   const currentResults = subjects.map(s => {
     const m = marks[s.id] || { theory: null, internal: null, practical: null };
@@ -116,51 +125,126 @@ export function generateInsights(subjects: Subject[], marks: Record<string, Subj
   const totalCredits = subjects.reduce((acc, s) => acc + s.credits, 0);
   const currentGPA = totalCredits > 0 ? currentResults.reduce((acc, r) => acc + r.res.grade.gp * r.subject.credits, 0) / totalCredits : 0;
 
+  const percentages = currentResults.map(r => r.res.percentage);
+  const mean = percentages.length > 0 ? percentages.reduce((a, b) => a + b, 0) / percentages.length : 0;
+  const variance = percentages.length > 0 ? percentages.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / percentages.length : 0;
+  const stdDev = Math.sqrt(variance);
+  const cv = mean > 0 ? (stdDev / mean) * 100 : 0;
+
+  const categories: Record<string, string[]> = {
+    'Analytical': ['Mathematics', 'Statistics', 'Numerical', 'Probability', 'Mechanics', 'Dynamics'],
+    'Implementation': ['Programming', 'Workshop', 'Drawing', 'Studio', 'Graphics', 'Sketching', 'Project', 'Internship', 'Laboratory'],
+    'Applied Science': ['Chemistry', 'Geology', 'Materials', 'Physics', 'Thermodynamics', 'Hydraulics', 'Soil', 'Survey']
+  };
+
+  const catScores: Record<string, { total: number; count: number }> = {
+    'Analytical': { total: 0, count: 0 },
+    'Implementation': { total: 0, count: 0 },
+    'Applied Science': { total: 0, count: 0 }
+  };
+
   currentResults.forEach(({ subject, res }) => {
     // Capping Risk
     if (res.isCapped) {
       const m = marks[subject.id];
       const loss = (m.internal || 0) - res.effectiveInternal;
-      cappingRisks.push({ subject: subject.name, loss });
+      const severity = loss > 10 ? 'high' : loss > 5 ? 'medium' : 'low';
+      cappingRisks.push({ subject: subject.name, loss, severity });
     }
 
-    // Impact
-    impactSubjects.push({ subject: subject.name, weight: subject.credits });
+    // Carry & Anchor
+    const impact = (res.grade.gp - currentGPA) * subject.credits;
+    if (impact > 0.1) carrySubjects.push({ subject: subject.name, impact });
+    if (impact < -0.1) anchorSubjects.push({ subject: subject.name, impact: Math.abs(impact) });
 
-    // Strength Zones
-    let categorized = false;
+    // ROI Data
+    let zone: 'Danger' | 'Easy Wins' | 'Golden' | 'Neutral' = 'Neutral';
+    if (subject.credits >= 3 && res.percentage < 60) zone = 'Danger';
+    else if (subject.credits < 3 && res.percentage >= 80) zone = 'Easy Wins';
+    else if (subject.credits >= 3 && res.percentage >= 80) zone = 'Golden';
+    roiData.push({ subject: subject.name, credits: subject.credits, percentage: res.percentage, zone });
+
+    // Near Misses
+    const boundaries = [
+      { pct: 80, grade: 'A' }, { pct: 75, grade: 'A-' }, { pct: 70, grade: 'B+' },
+      { pct: 65, grade: 'B' }, { pct: 60, grade: 'B-' }, { pct: 55, grade: 'C+' },
+      { pct: 50, grade: 'C' }, { pct: 40, grade: 'D' }
+    ];
+    
+    const nextBoundary = boundaries.find(b => b.pct > res.percentage);
+    if (nextBoundary) {
+      const totalFull = subject.theoryFull + subject.internalFull + subject.practicalFull;
+      const marksNeeded = Math.ceil((nextBoundary.pct / 100) * totalFull) - res.totalObtained;
+      
+      if (marksNeeded <= 3 && marksNeeded > 0) {
+        const nextGP = getGrade(nextBoundary.pct).gp;
+        const gpaLoss = ((nextGP - res.grade.gp) * subject.credits) / totalCredits;
+        nearMisses.push({ 
+          subject: subject.name, 
+          marksToNext: marksNeeded, 
+          nextGrade: nextBoundary.grade, 
+          gpaLoss,
+          isClutch: false 
+        });
+      }
+    }
+
+    // Clutch Check (Exactly on boundary)
+    const onBoundary = boundaries.find(b => Math.abs(b.pct - res.percentage) < 0.1);
+    if (onBoundary) {
+      nearMisses.push({
+        subject: subject.name,
+        marksToNext: 0,
+        nextGrade: onBoundary.grade,
+        gpaLoss: 0,
+        isClutch: true
+      });
+    }
+
+    // Archetype Data
     for (const [cat, keywords] of Object.entries(categories)) {
       if (keywords.some(k => subject.name.includes(k))) {
+        catScores[cat].total += res.percentage;
+        catScores[cat].count++;
+        
         const zone = strengthZones.find(z => z.category === cat);
         if (zone) zone.subjects.push(subject.name);
         else strengthZones.push({ category: cat, subjects: [subject.name] });
-        categorized = true;
         break;
       }
     }
-    if (!categorized) {
-      const zone = strengthZones.find(z => z.category === 'Others');
-      if (zone) zone.subjects.push(subject.name);
-      else strengthZones.push({ category: 'Others', subjects: [subject.name] });
-    }
   });
 
-  // Optimization Points (What-If)
+  // Determine Archetype
+  let topCat = 'Versatile Generalist';
+  let maxAvg = 0;
+  for (const [cat, data] of Object.entries(catScores)) {
+    if (data.count > 0) {
+      const avg = data.total / data.count;
+      if (avg > maxAvg && avg > 70) {
+        maxAvg = avg;
+        topCat = cat;
+      }
+    }
+  }
+
+  const archetypeMap: Record<string, { title: string; description: string }> = {
+    'Analytical': { title: 'The Structural Visionary', description: 'You excel in mathematical logic and structural analysis. Your strength lies in solving complex numerical problems.' },
+    'Implementation': { title: 'The Systems Architect', description: 'You are a master of practical implementation and design. You turn abstract concepts into working systems.' },
+    'Applied Science': { title: 'The Scientific Explorer', description: 'You have a deep understanding of the fundamental sciences that power engineering.' },
+    'Versatile Generalist': { title: 'The Versatile Generalist', description: 'You maintain a balanced performance across all engineering disciplines.' }
+  };
+
+  // Optimization Points
   subjects.forEach(s => {
     const m = marks[s.id] || { theory: null, internal: null, practical: null };
     if (s.theoryFull > 0 && m.theory !== null && m.theory < s.theoryFull) {
       const improvedTheory = Math.min(s.theoryFull, m.theory + 5);
       const improvedRes = calculateSubjectGPA(improvedTheory, s.theoryFull, m.internal, s.internalFull, m.practical, s.practicalFull);
-      
-      const newTotalPoints = currentResults.reduce((acc, r) => {
-        if (r.subject.id === s.id) return acc + improvedRes.grade.gp * s.credits;
-        return acc + r.res.grade.gp * r.subject.credits;
-      }, 0);
-      
-      const newGPA = newTotalPoints / totalCredits;
+      const newGPA = (currentResults.reduce((acc, r) => r.subject.id === s.id ? acc + improvedRes.grade.gp * s.credits : acc + r.res.grade.gp * r.subject.credits, 0)) / totalCredits;
       if (newGPA > currentGPA) {
         optimizationPoints.push({
-          text: `If you scored 5 more marks in ${s.name} theory, your GPA would increase to ${newGPA.toFixed(2)}.`,
+          text: `Score 5 more marks in ${s.name} theory`,
           gpaIncrease: newGPA - currentGPA
         });
       }
@@ -172,6 +256,11 @@ export function generateInsights(subjects: Subject[], marks: Record<string, Subj
     impactSubjects: impactSubjects.sort((a, b) => b.weight - a.weight).slice(0, 3),
     strengthZones,
     optimizationPoints: optimizationPoints.sort((a, b) => b.gpaIncrease - a.gpaIncrease).slice(0, 3),
+    nearMisses: nearMisses.sort((a, b) => a.marksToNext - b.marksToNext),
+    carrySubjects: carrySubjects.sort((a, b) => b.impact - a.impact),
+    anchorSubjects: anchorSubjects.sort((a, b) => b.impact - a.impact),
+    archetype: archetypeMap[topCat],
+    roiData,
     cv
   };
 }
