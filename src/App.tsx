@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Calculator, BookOpen, Download, RotateCcw, Plus, Trash2, ChevronDown, BarChart3, Target, Sparkles, AlertTriangle, TrendingUp, BrainCircuit } from 'lucide-react';
+import { Calculator, BookOpen, Download, RotateCcw, Plus, Trash2, ChevronDown, BarChart3, Target, Sparkles, AlertTriangle, TrendingUp, BrainCircuit, PieChart as PieChartIcon } from 'lucide-react';
 import { Faculty, Subject, SubjectMarks, SemesterResult } from './types';
 import { SUBJECT_DATABASE } from './data/subjects';
 import { calculateSubjectGPA, getDivision, generateInsights, simulateTargetGPA } from './lib/calculations';
@@ -665,7 +665,7 @@ export default function App() {
                     {/* Credit Weightage Pie */}
                     <div className="apple-card p-6">
                       <h3 className="text-sm font-bold uppercase tracking-widest mb-6 flex items-center gap-2">
-                        <PieChart className="w-4 h-4" />
+                        <PieChartIcon className="w-4 h-4" />
                         Credit Weightage
                       </h3>
                       <div className="h-64">
