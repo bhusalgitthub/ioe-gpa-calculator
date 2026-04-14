@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, memo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Calculator, BookOpen, Download, RotateCcw, Plus, Trash2, ChevronDown, BarChart3, Target, AlertTriangle, TrendingUp, PieChart as PieChartIcon } from 'lucide-react';
 import { Faculty, Subject, SubjectMarks, SemesterResult } from './types';
@@ -8,6 +8,84 @@ import GoogleAd from './components/GoogleAd';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 
 const EMPTY_ARRAY: any[] = [];
+
+const SubjectRow = memo(({ 
+  subject, 
+  marks, 
+  onChange 
+}: { 
+  subject: Subject; 
+  marks: SubjectMarks; 
+  onChange: (id: string, field: keyof SubjectMarks, value: string, max: number) => void 
+}) => {
+  const res = calculateSubjectGPA(
+    marks.theory, subject.theoryFull,
+    marks.internal, subject.internalFull,
+    marks.practical, subject.practicalFull
+  );
+
+  return (
+    <tr className="hover:bg-[--color-apple-bg]/50 transition-colors">
+      <td className="px-6 py-4">
+        <p className="text-sm font-semibold">{subject.name}</p>
+        {res.isCapped && <span className="text-[9px] text-black/40 font-bold uppercase tracking-tighter block mt-0.5">Capped by 20% rule</span>}
+      </td>
+      <td className="px-4 py-4 text-center text-sm font-medium text-[--color-apple-gray]">{subject.credits}</td>
+      <td className="px-4 py-4">
+        {subject.theoryFull > 0 ? (
+          <div className="flex flex-col items-center gap-1">
+            <input
+              type="number"
+              placeholder="—"
+              value={marks.theory === null || isNaN(marks.theory) ? '' : marks.theory}
+              onChange={(e) => onChange(subject.id, 'theory', e.target.value, subject.theoryFull)}
+              className={`apple-input w-16 text-center h-8 ${marks.theory !== null && marks.theory < subject.theoryFull * 0.4 ? 'border-red-500 text-red-600' : ''}`}
+            />
+            <span className="text-[10px] text-[--color-apple-gray]">/ {subject.theoryFull}</span>
+          </div>
+        ) : <span className="text-[--color-apple-gray] block text-center">—</span>}
+      </td>
+      <td className="px-4 py-4">
+        {subject.internalFull > 0 ? (
+          <div className="flex flex-col items-center gap-1">
+            <input
+              type="number"
+              placeholder="—"
+              value={marks.internal === null || isNaN(marks.internal) ? '' : marks.internal}
+              onChange={(e) => onChange(subject.id, 'internal', e.target.value, subject.internalFull)}
+              className={`apple-input w-16 text-center h-8 ${marks.internal !== null && marks.internal < subject.internalFull * 0.4 ? 'border-red-500 text-red-600' : ''}`}
+            />
+            <span className="text-[10px] text-[--color-apple-gray]">/ {subject.internalFull}</span>
+          </div>
+        ) : <span className="text-[--color-apple-gray] block text-center">—</span>}
+      </td>
+      <td className="px-4 py-4">
+        {subject.practicalFull > 0 ? (
+          <div className="flex flex-col items-center gap-1">
+            <input
+              type="number"
+              placeholder="—"
+              value={marks.practical === null || isNaN(marks.practical) ? '' : marks.practical}
+              onChange={(e) => onChange(subject.id, 'practical', e.target.value, subject.practicalFull)}
+              className={`apple-input w-16 text-center h-8 ${marks.practical !== null && marks.practical < subject.practicalFull * 0.4 ? 'border-red-500 text-red-600' : ''}`}
+            />
+            <span className="text-[10px] text-[--color-apple-gray]">/ {subject.practicalFull}</span>
+          </div>
+        ) : <span className="text-[--color-apple-gray] block text-center">—</span>}
+      </td>
+      <td className="px-4 py-4 text-center">
+        <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
+          res.grade.letter === 'F' ? 'bg-red-50 text-red-600' : 'bg-black text-white'
+        }`}>
+          {res.grade.letter}
+        </span>
+      </td>
+      <td className="px-6 py-4 text-right text-sm font-bold">
+        {(res.grade.gp * subject.credits).toFixed(2)}
+      </td>
+    </tr>
+  );
+});
 
 export default function App() {
   const [mode, setMode] = useState<'semester' | 'aggregate' | 'stats' | 'simulator'>('semester');
@@ -27,14 +105,17 @@ export default function App() {
 
   const [targetGPA, setTargetGPA] = useState(3.6);
 
-  // Persistence effects
+  // Persistence effects (debounced for marks)
   useEffect(() => {
     if (faculty) localStorage.setItem('ioe_faculty', faculty);
     if (semester) localStorage.setItem('ioe_semester', semester.toString());
   }, [faculty, semester]);
 
   useEffect(() => {
-    localStorage.setItem('ioe_marks', JSON.stringify(marks));
+    const timer = setTimeout(() => {
+      localStorage.setItem('ioe_marks', JSON.stringify(marks));
+    }, 500);
+    return () => clearTimeout(timer);
   }, [marks]);
 
   useEffect(() => {
@@ -284,7 +365,7 @@ export default function App() {
                   </div>
 
                   {/* Post-Calculation Ad */}
-                  <GoogleAd adSlot="2297473424" className="my-6" />
+                  <GoogleAd adSlot="2297473424" className="my-4 sm:my-6" />
 
                   {/* Subjects Table */}
                   <div className="apple-card">
@@ -302,75 +383,14 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-[--color-apple-border]">
-                          {subjects.map(s => {
-                            const m = marks[s.id] || { theory: null, internal: null, practical: null };
-                            const res = calculateSubjectGPA(
-                              m.theory, s.theoryFull,
-                              m.internal, s.internalFull,
-                              m.practical, s.practicalFull
-                            );
-                            return (
-                              <tr key={s.id} className="hover:bg-[--color-apple-bg]/50 transition-colors">
-                                <td className="px-6 py-4">
-                                  <p className="text-sm font-semibold">{s.name}</p>
-                                  {res.isCapped && <span className="text-[9px] text-black/40 font-bold uppercase tracking-tighter block mt-0.5">Capped by 20% rule</span>}
-                                </td>
-                                <td className="px-4 py-4 text-center text-sm font-medium text-[--color-apple-gray]">{s.credits}</td>
-                                <td className="px-4 py-4">
-                                  {s.theoryFull > 0 ? (
-                                    <div className="flex flex-col items-center gap-1">
-                                      <input
-                                        type="number"
-                                        placeholder="—"
-                                        value={m.theory === null || isNaN(m.theory) ? '' : m.theory}
-                                        onChange={(e) => handleMarkChange(s.id, 'theory', e.target.value, s.theoryFull)}
-                                        className={`apple-input w-16 text-center h-8 ${m.theory !== null && m.theory < s.theoryFull * 0.4 ? 'border-red-500 text-red-600' : ''}`}
-                                      />
-                                      <span className="text-[10px] text-[--color-apple-gray]">/ {s.theoryFull}</span>
-                                    </div>
-                                  ) : <span className="text-[--color-apple-gray] block text-center">—</span>}
-                                </td>
-                                <td className="px-4 py-4">
-                                  {s.internalFull > 0 ? (
-                                    <div className="flex flex-col items-center gap-1">
-                                      <input
-                                        type="number"
-                                        placeholder="—"
-                                        value={m.internal === null || isNaN(m.internal) ? '' : m.internal}
-                                        onChange={(e) => handleMarkChange(s.id, 'internal', e.target.value, s.internalFull)}
-                                        className={`apple-input w-16 text-center h-8 ${m.internal !== null && m.internal < s.internalFull * 0.4 ? 'border-red-500 text-red-600' : ''}`}
-                                      />
-                                      <span className="text-[10px] text-[--color-apple-gray]">/ {s.internalFull}</span>
-                                    </div>
-                                  ) : <span className="text-[--color-apple-gray] block text-center">—</span>}
-                                </td>
-                                <td className="px-4 py-4">
-                                  {s.practicalFull > 0 ? (
-                                    <div className="flex flex-col items-center gap-1">
-                                      <input
-                                        type="number"
-                                        placeholder="—"
-                                        value={m.practical === null || isNaN(m.practical) ? '' : m.practical}
-                                        onChange={(e) => handleMarkChange(s.id, 'practical', e.target.value, s.practicalFull)}
-                                        className={`apple-input w-16 text-center h-8 ${m.practical !== null && m.practical < s.practicalFull * 0.4 ? 'border-red-500 text-red-600' : ''}`}
-                                      />
-                                      <span className="text-[10px] text-[--color-apple-gray]">/ {s.practicalFull}</span>
-                                    </div>
-                                  ) : <span className="text-[--color-apple-gray] block text-center">—</span>}
-                                </td>
-                                <td className="px-4 py-4 text-center">
-                                  <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                                    res.grade.letter === 'F' ? 'bg-red-50 text-red-600' : 'bg-black text-white'
-                                  }`}>
-                                    {res.grade.letter}
-                                  </span>
-                                </td>
-                                <td className="px-6 py-4 text-right text-sm font-bold">
-                                  {(res.grade.gp * s.credits).toFixed(2)}
-                                </td>
-                              </tr>
-                            );
-                          })}
+                          {subjects.map(s => (
+                            <SubjectRow 
+                              key={s.id} 
+                              subject={s} 
+                              marks={marks[s.id] || { theory: null, internal: null, practical: null }} 
+                              onChange={handleMarkChange} 
+                            />
+                          ))}
                         </tbody>
                         <tfoot>
                           <tr className="bg-[--color-apple-bg]/30 font-bold">
@@ -460,7 +480,7 @@ export default function App() {
                       </section>
 
                       {/* Methodology Ad */}
-                      <GoogleAd adSlot="3174832011" className="my-8" />
+                      <GoogleAd adSlot="3174832011" className="my-4 sm:my-8" />
 
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
                         {/* II. Separate Pass Criteria */}

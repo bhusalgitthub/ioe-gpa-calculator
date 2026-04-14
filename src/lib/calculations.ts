@@ -183,16 +183,13 @@ export function simulateTargetGPA(subjects: Subject[], targetGPA: number): Recor
   const totalCredits = subjects.reduce((acc, s) => acc + s.credits, 0);
   const requiredPoints = targetGPA * totalCredits;
 
-  // Try to find a distribution
-  // We'll use a simple heuristic: start with all subjects at 40% (pass)
-  // then increment percentages until we reach the target GPA
-  
+  // Initialize: Practical and Internal to FULL, Theory to PASS (40%)
   const marks: Record<string, SubjectMarks> = {};
   subjects.forEach(s => {
     marks[s.id] = {
       theory: s.theoryFull > 0 ? Math.ceil(0.4 * s.theoryFull) : 0,
-      internal: s.internalFull > 0 ? Math.ceil(0.4 * s.internalFull) : 0,
-      practical: s.practicalFull > 0 ? Math.ceil(0.4 * s.practicalFull) : 0
+      internal: s.internalFull,
+      practical: s.practicalFull
     };
   });
 
@@ -204,77 +201,51 @@ export function simulateTargetGPA(subjects: Subject[], targetGPA: number): Recor
   };
 
   let currentPoints = getPoints(marks);
-  if (currentPoints > requiredPoints) {
-     // Even at pass marks, we exceed target. This is fine, just return pass marks.
-     return marks;
+  
+  // If even with full practical/internal and pass theory we exceed target, 
+  // we can try to lower theory (but user said "change value in theory marks only" 
+  // and "keep practical full", so we'll stick with pass theory as minimum).
+  if (currentPoints >= requiredPoints) {
+    return marks;
   }
 
-  // Greedy approach: increment subjects one by one to the next grade boundary
-  const gradeBoundaries = [50, 55, 60, 65, 70, 75, 80];
-  
+  // Greedy approach: increment THEORY marks only to reach target
+  // We'll increment by 1 mark at a time across subjects to find a balanced distribution
   let improved = true;
   let iterations = 0;
-  const maxIterations = 100; // Safety break
+  const maxIterations = 2000; // Increased safety break for mark-by-mark increments
 
   while (currentPoints < requiredPoints && improved && iterations < maxIterations) {
     improved = false;
-    iterations++;
     
-    for (const s of subjects) {
+    // Sort subjects by credits (descending) to prioritize high-impact subjects for theory increments
+    const sortedSubjects = [...subjects].sort((a, b) => b.credits - a.credits);
+
+    for (const s of sortedSubjects) {
+      if (s.theoryFull === 0) continue;
       const m = marks[s.id];
-      const totalFull = s.theoryFull + s.internalFull + s.practicalFull;
-      if (totalFull === 0) continue;
-
-      const currentTotal = (m.theory || 0) + (m.internal || 0) + (m.practical || 0);
-      const currentPct = (currentTotal / totalFull) * 100;
       
-      const nextBoundary = gradeBoundaries.find(b => b > currentPct + 0.01); // Use small epsilon
-      if (nextBoundary) {
-        const neededTotal = Math.ceil((nextBoundary / 100) * totalFull);
-        let diff = neededTotal - currentTotal;
+      if ((m.theory || 0) < s.theoryFull) {
+        m.theory = (m.theory || 0) + 1;
+        const newPoints = getPoints(marks);
         
-        if (diff <= 0) continue;
-
-        let changed = false;
-        // Distribute diff: Theory first, then Practical, then Internal
-        if (s.theoryFull > 0 && (m.theory || 0) < s.theoryFull) {
-          const canAdd = s.theoryFull - (m.theory || 0);
-          const toAdd = Math.min(diff, canAdd);
-          m.theory = (m.theory || 0) + toAdd;
-          diff -= toAdd;
-          if (toAdd > 0) changed = true;
+        if (newPoints > currentPoints) {
+          currentPoints = newPoints;
+          improved = true;
+        } else {
+          // If adding 1 mark didn't change GPA (didn't cross boundary), 
+          // we still keep it and continue searching
+          improved = true;
         }
         
-        if (diff > 0 && s.practicalFull > 0 && (m.practical || 0) < s.practicalFull) {
-          const canAdd = s.practicalFull - (m.practical || 0);
-          const toAdd = Math.min(diff, canAdd);
-          m.practical = (m.practical || 0) + toAdd;
-          diff -= toAdd;
-          if (toAdd > 0) changed = true;
-        }
-
-        if (diff > 0 && s.internalFull > 0 && (m.internal || 0) < s.internalFull) {
-          const canAdd = s.internalFull - (m.internal || 0);
-          const toAdd = Math.min(diff, canAdd);
-          m.internal = (m.internal || 0) + toAdd;
-          diff -= toAdd;
-          if (toAdd > 0) changed = true;
-        }
-        
-        if (changed) {
-          const newPoints = getPoints(marks);
-          if (newPoints > currentPoints) {
-            currentPoints = newPoints;
-            improved = true;
-          }
-          if (currentPoints >= requiredPoints) break;
-        }
+        iterations++;
+        if (currentPoints >= requiredPoints) break;
       }
     }
   }
 
   if (currentPoints < requiredPoints) {
-    return "Feasibility Error: Target GPA is mathematically impossible with the current syllabus constraints.";
+    return "Feasibility Error: Target GPA is mathematically impossible even with full practicals and 100% theory.";
   }
 
   return marks;
